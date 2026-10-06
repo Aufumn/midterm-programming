@@ -28,27 +28,71 @@ def find_duplicates_fast(data):
 # YOUR TASK: FIX THE BENCHMARKING SCRIPT BELOW
 # =======================================================
 
-def flawed_benchmark():
-    """
-    This benchmarking function contains several methodological errors.
-    Rewrite this function to properly and fairly compare the two algorithms to demonstrate their scaling behavior.
-    """
-    print("Running flawed benchmark...")
-    
-    n = 1000
-    
-    start_time = time.time()
-    data1 = [random.randint(i, 10000) for i in range(n)]
-    find_duplicates_slow(data1)
-    end_time = time.time()
-    print(f"Slow algorithm took: {end_time - start_time} seconds")
-    
-    start_time_2 = time.time()
-    data2 = [random.randint(i, 10000) for i in range(n)]
-    find_duplicates_fast(data2)
-    end_time_2 = time.time()
-    print(f"Fast algorithm took: {end_time_2 - start_time_2} seconds")
-
-
+def make_worst_case_data(n, rng):
+    """n unique values in random order -> no duplicates, so neither algorithm
+    can exit early and both do their full amount of work."""
+    return rng.sample(range(n * 10), n)
+ 
+ 
+def time_once(func, data):
+    """Time a single call, with GC paused so collections don't add noise."""
+    gc_was_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        start = time.perf_counter()
+        result = func(data)
+        elapsed = time.perf_counter() - start
+    finally:
+        if gc_was_enabled:
+            gc.enable()
+    return elapsed, result
+ 
+ 
+def benchmark(func, data, repeats):
+    """Run func on the same data several times; return (median, min) seconds."""
+    func(data)  # warm-up run, not timed
+    times = []
+    for _ in range(repeats):
+        elapsed, _ = time_once(func, data)
+        times.append(elapsed)
+    return statistics.median(times), min(times)
+ 
+ 
+def estimate_exponent(sizes, times):
+    """Slope of log(time) vs log(n): ~1 means O(n), ~2 means O(n^2)."""
+    xs = [math.log(n) for n in sizes]
+    ys = [math.log(t) for t in times]
+    x_mean, y_mean = statistics.fmean(xs), statistics.fmean(ys)
+    num = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys))
+    den = sum((x - x_mean) ** 2 for x in xs)
+    return num / den
+ 
+ 
+def run_benchmark(sizes=(250, 500, 1000, 2000, 4000), repeats=7, seed=42):
+    rng = random.Random(seed)  # reproducible inputs
+    slow_times, fast_times = [], []
+ 
+    print(f"{'n':>8} | {'slow (s)':>12} | {'fast (s)':>12} | {'speedup':>10}")
+    print("-" * 52)
+ 
+    for n in sizes:
+        # Data is built OUTSIDE the timed region and shared by both algorithms.
+        data = make_worst_case_data(n, rng)
+ 
+        # Sanity check: both must agree (and here, both must say "no duplicates").
+        assert find_duplicates_slow(data) == find_duplicates_fast(data) == False
+ 
+        slow_med, _ = benchmark(find_duplicates_slow, data, repeats)
+        fast_med, _ = benchmark(find_duplicates_fast, data, repeats)
+        slow_times.append(slow_med)
+        fast_times.append(fast_med)
+ 
+        print(f"{n:>8} | {slow_med:>12.6f} | {fast_med:>12.6f} | {slow_med / fast_med:>9.1f}x")
+ 
+    print("-" * 52)
+    print(f"Estimated scaling exponent (slow): {estimate_exponent(sizes, slow_times):.2f}  (expect ~2)")
+    print(f"Estimated scaling exponent (fast): {estimate_exponent(sizes, fast_times):.2f}  (expect ~1)")
+ 
+ 
 if __name__ == "__main__":
-    flawed_benchmark()
+    run_benchmark()
